@@ -30,10 +30,16 @@ def run_one_protocol(network, params, Tw, rng):
 
     release_time = params["init_time"] + Tw
     early_time = release_time + params["early_recovery_delta"]
+    selected_recovery_times = params.get("selected_recovery_times", [0])
+    selected_snapshot_times = {
+        release_time + int(recovery_time): int(recovery_time)
+        for recovery_time in selected_recovery_times
+    }
     total_time = release_time + params["relax_time"]
 
     release_snapshot = None
     early_recovery_snapshot = None
+    selected_snapshots = {}
     zero_field_count = 0
     mag_rows = []
 
@@ -42,6 +48,9 @@ def run_one_protocol(network, params, Tw, rng):
             release_snapshot = spins.copy()
         if time == early_time:
             early_recovery_snapshot = spins.copy()
+        if time in selected_snapshot_times:
+            recovery_time = selected_snapshot_times[time]
+            selected_snapshots[recovery_time] = spins.copy()
 
         mag_rows.append(
             {
@@ -66,12 +75,19 @@ def run_one_protocol(network, params, Tw, rng):
         raise RuntimeError("release snapshot was not recorded")
     if early_recovery_snapshot is None:
         raise RuntimeError("early recovery snapshot was not recorded")
+    missing = [
+        recovery_time
+        for recovery_time in selected_recovery_times
+        if int(recovery_time) not in selected_snapshots
+    ]
+    if missing:
+        raise RuntimeError(f"selected recovery snapshots were not recorded: {missing}")
 
     return {
         "magnetization": pd.DataFrame(mag_rows),
         "release_snapshot": release_snapshot,
         "early_recovery_snapshot": early_recovery_snapshot,
+        "selected_snapshots": selected_snapshots,
         "final_spins": spins,
         "zero_field_count": zero_field_count,
     }
-

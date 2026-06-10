@@ -2,13 +2,16 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rccn_persistence.observables import (
+    classify_cell_fate,
     compute_global_magnetization,
     compute_recovery_time,
+    summarize_fate_by_Tw,
 )
 
 
@@ -30,3 +33,22 @@ def test_recovery_time_first_crossing_uses_strictly_below_baseline():
     assert recovery_time == 1
     assert recovered is True
 
+
+def test_cell_fate_uses_censoring_or_recovery_threshold():
+    metadata = pd.DataFrame(
+        {
+            "run_id": [0, 1, 2],
+            "Tw": [20, 20, 40],
+            "recovered": [True, False, True],
+            "recovery_time": [10.0, np.nan, 200.0],
+        }
+    )
+
+    default_fate = classify_cell_fate(metadata)
+    assert default_fate["fate"].tolist() == ["regrowth", "persister", "regrowth"]
+
+    threshold_fate = classify_cell_fate(metadata, persister_recovery_time=100)
+    assert threshold_fate["fate"].tolist() == ["regrowth", "persister", "persister"]
+
+    summary = summarize_fate_by_Tw(metadata)
+    assert set(summary["fate"]) == {"regrowth", "persister"}

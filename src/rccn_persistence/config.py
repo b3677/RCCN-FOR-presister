@@ -38,6 +38,31 @@ def make_debug_params():
     return params
 
 
+def make_final_project_params():
+    """Return parameters for the final RCCN figure pipeline."""
+    params = make_default_params()
+    params.update(
+        {
+            "waiting_times": [0, 195, 488, 1346, 1500],
+            "n_runs": 900,
+            "selected_recovery_times": [0, 20, 120],
+            "early_recovery_delta": 20,
+            "pca_components": 10,
+            "n_clusters": 3,
+            "feature_mode": "selected_snapshots",
+            "state_recovery_time_for_cluster_summary": 0,
+            "state_recovery_time_for_figE": 0,
+            "state_recovery_time_for_figD": 0,
+            "figD_window_size": 100,
+            "umap_n_neighbors": 20,
+            "umap_min_dist": 0.2,
+            "sourcefig2_path": str(Path("data") / "sourcefig2.xlsx"),
+            "random_seed": 1,
+        }
+    )
+    return params
+
+
 def make_output_paths(project_root):
     project_root = Path(project_root)
     return {
@@ -46,3 +71,11 @@ def make_output_paths(project_root):
         "figures": project_root / "output" / "figures",
     }
 
+
+def make_final_output_paths(project_root):
+    project_root = Path(project_root)
+    return {
+        "final_simulation": project_root / "output" / "final_simulation",
+        "final_analysis": project_root / "output" / "final_analysis",
+        "final_figures": project_root / "output" / "final_figures",
+    }
