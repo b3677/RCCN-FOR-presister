@@ -310,6 +310,39 @@ def compute_cycle_pc1_moving_average(
     return pd.DataFrame(rows)
 
 
+def compute_cycle_pc1_moving_average_by_Tw(
+    cell_state_table, cycle_group_table, state_recovery_time_for_figD=0, window_size=100
+):
+    tables = []
+    for Tw in sorted(cell_state_table["Tw"].dropna().unique()):
+        state_subset = cell_state_table[cell_state_table["Tw"] == Tw]
+        cycle_subset = cycle_group_table[cycle_group_table["Tw"] == Tw]
+        table = compute_cycle_pc1_moving_average(
+            state_subset,
+            cycle_subset,
+            state_recovery_time_for_figD=state_recovery_time_for_figD,
+            window_size=window_size,
+        )
+        table.insert(0, "Tw", Tw)
+        table["state_recovery_time"] = state_recovery_time_for_figD
+        tables.append(table)
+
+    if not tables:
+        return pd.DataFrame(
+            columns=[
+                "Tw",
+                "PC1_window_center",
+                "cycle_group",
+                "mean_cycle_activation",
+                "sem_cycle_activation",
+                "n_cells_in_window",
+                "window_size",
+                "state_recovery_time",
+            ]
+        )
+    return pd.concat(tables, ignore_index=True)
+
+
 def run_final_state_analysis(simulation_data, analysis_params):
     X_features, feature_metadata = build_spin_feature_matrix(
         simulation_data, analysis_params.get("feature_mode", "selected_snapshots")

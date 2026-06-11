@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from rccn_persistence.io_utils import (
     save_params,
 )
 from rccn_persistence.simulation import run_batch
+from rccn_persistence.simulation import run_batch_with_tw_checkpoints
 
 
 def apply_smoke_overrides(params):
@@ -22,14 +24,18 @@ def apply_smoke_overrides(params):
             "n_runs": 2,
             "waiting_times": [0, 488, 1346],
             "init_time": 20,
-            "relax_time": 140,
+            "relax_time": 4050,
             "baseline_window": 10,
             "max_cycle_length": 20,
-            "selected_recovery_times": [0, 20, 120],
+            "selected_recovery_times": [0, 250, 500, 1000, 2000, 4000],
             "pca_components": 5,
             "figD_window_size": 4,
         }
     )
+
+
+def default_worker_count():
+    return min(12, os.cpu_count() or 1)
 
 
 def main():
@@ -44,6 +50,9 @@ def main():
     parser.add_argument("--max-cycle-length", type=int)
     parser.add_argument("--selected-recovery-times", nargs="*", type=int)
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--workers", type=int)
+    parser.add_argument("--serial", action="store_true")
+    parser.add_argument("--no-resume", action="store_true")
     args = parser.parse_args()
 
     params = make_final_project_params()
@@ -77,7 +86,20 @@ def main():
     ensure_output_dirs(paths)
     save_params(params, paths["final_simulation"])
 
-    batch_result = run_batch(params)
+    use_serial = args.serial or (args.preset == "smoke" and args.workers is None)
+    if use_serial:
+        batch_result = run_batch(params)
+    else:
+        workers = args.workers if args.workers is not None else default_worker_count()
+        if workers < 1:
+            raise ValueError("workers must be at least 1")
+        checkpoint_dir = paths["final_simulation"] / "checkpoints"
+        batch_result = run_batch_with_tw_checkpoints(
+            params,
+            checkpoint_dir,
+            workers=workers,
+            resume=not args.no_resume,
+        )
     save_final_simulation_outputs(batch_result, paths)
     print(f"[done] final simulation outputs: {paths['final_simulation']}")
 

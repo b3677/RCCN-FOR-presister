@@ -1,0 +1,14 @@
+name: qbio_rccn_py311
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - scikit-learn
+  - umap-learn
+  - openpyxl
+  - pytest
+  - pip

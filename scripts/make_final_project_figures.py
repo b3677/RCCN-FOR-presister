@@ -11,10 +11,29 @@ from rccn_persistence.io_utils import ensure_output_dirs, load_final_analysis_ou
 from rccn_persistence.plotting import (
     plot_figA_recovery_dynamics,
     plot_figB_umap_by_Tw_recovery_time,
+    plot_figB_umap_recovery_time_exploration,
     plot_figC_cluster_occupancy_and_lag,
     plot_figD_cycle_groups_along_PC1,
     plot_figE_presister_like_pca_umap,
 )
+
+
+MAIN_FIGB_RECOVERY_TIMES = [0, 500, 2000]
+EXPLORATORY_FIGB_RECOVERY_TIMES = [0, 250, 500, 1000, 2000, 4000]
+
+
+def require_recovery_times(cell_state_table, required_times, figure_name):
+    available = sorted(
+        int(time) for time in cell_state_table["state_recovery_time"].dropna().unique()
+    )
+    missing = sorted(set(required_times) - set(available))
+    if missing:
+        raise ValueError(
+            f"{figure_name} needs state_recovery_time={required_times}, "
+            f"but the current analysis table only has {available}. "
+            "Rerun the final simulation and final state analysis with "
+            "selected_recovery_times=[0, 250, 500, 1000, 2000, 4000]."
+        )
 
 
 def main():
@@ -29,6 +48,14 @@ def main():
     analysis = load_final_analysis_outputs(paths)
     figure_dir = paths["final_figures"]
     figure_dir.mkdir(parents=True, exist_ok=True)
+    require_recovery_times(
+        analysis["cell_state_table"], MAIN_FIGB_RECOVERY_TIMES, "Main Fig. B"
+    )
+    require_recovery_times(
+        analysis["cell_state_table"],
+        EXPLORATORY_FIGB_RECOVERY_TIMES,
+        "Exploratory Fig. B",
+    )
 
     plot_figA_recovery_dynamics(
         analysis["recovery_dynamics_by_Tw"],
@@ -49,6 +76,12 @@ def main():
         analysis["cell_state_table"],
         analysis["tail_fraction_by_Tw"],
         figure_dir / "figB_umap_by_Tw_recovery_time.png",
+        selected_recovery_times=MAIN_FIGB_RECOVERY_TIMES,
+    )
+    plot_figB_umap_recovery_time_exploration(
+        analysis["cell_state_table"],
+        analysis["tail_fraction_by_Tw"],
+        figure_dir / "figB_umap_recovery_time_exploration_6color.png",
     )
     plot_figD_cycle_groups_along_PC1(
         analysis["cycle_pc1_moving_average"],

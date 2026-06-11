@@ -44,8 +44,9 @@ def make_final_project_params():
     params.update(
         {
             "waiting_times": [0, 195, 488, 1346, 1500],
-            "n_runs": 900,
-            "selected_recovery_times": [0, 20, 120],
+            "relax_time": 4050,
+            "n_runs": 2000,
+            "selected_recovery_times": [0, 250, 500, 1000, 2000, 4000],
             "early_recovery_delta": 20,
             "pca_components": 10,
             "n_clusters": 3,
@@ -74,8 +75,9 @@ def make_output_paths(project_root):
 
 def make_final_output_paths(project_root):
     project_root = Path(project_root)
+    output_root = project_root / "output" / "result611"
     return {
-        "final_simulation": project_root / "output" / "final_simulation",
-        "final_analysis": project_root / "output" / "final_analysis",
-        "final_figures": project_root / "output" / "final_figures",
+        "final_simulation": output_root / "final_simulation",
+        "final_analysis": output_root / "final_analysis",
+        "final_figures": output_root / "final_figures",
     }

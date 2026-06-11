@@ -83,6 +83,61 @@ def compute_survival_by_Tw(metadata, max_time):
     return pd.concat(tables, ignore_index=True)
 
 
+def compute_recovery_survival_to_zero_by_Tw(
+    magnetization_csv_path,
+    metadata,
+    max_time,
+    target_magnetization=0.0,
+    chunksize=1_000_000,
+):
+    """Compute unrecovered fraction using first return to M <= target."""
+    metadata = metadata[["run_id", "Tw", "snapshot_time"]].copy()
+    metadata["run_id"] = metadata["run_id"].astype(int)
+    first_recovery = {}
+
+    usecols = ["run_id", "time", "magnetization"]
+    for chunk in pd.read_csv(magnetization_csv_path, usecols=usecols, chunksize=chunksize):
+        chunk = chunk.merge(metadata, on="run_id", how="inner")
+        after_release = chunk["time"] >= chunk["snapshot_time"]
+        returned_to_zero = chunk["magnetization"] <= target_magnetization
+        events = chunk.loc[after_release & returned_to_zero, ["run_id", "time", "snapshot_time"]]
+        if events.empty:
+            continue
+
+        events["recovery_time"] = events["time"] - events["snapshot_time"]
+        chunk_first = events.groupby("run_id")["recovery_time"].min()
+        for run_id, recovery_time in chunk_first.items():
+            previous = first_recovery.get(run_id)
+            if previous is None or recovery_time < previous:
+                first_recovery[int(run_id)] = int(recovery_time)
+
+    recovery_times = metadata["run_id"].map(first_recovery)
+    rows = []
+    definition = f"first recovery time with magnetization <= {target_magnetization:g}"
+    time_grid = np.arange(0, int(max_time) + 1)
+    for Tw, group in metadata.assign(recovery_time=recovery_times).groupby("Tw"):
+        valid_recovery = group["recovery_time"].dropna().to_numpy(dtype=float)
+        n_total = len(group)
+        for recovery_time in time_grid:
+            n_recovered = int(np.count_nonzero(valid_recovery <= recovery_time))
+            n_unrecovered = int(n_total - n_recovered)
+            cdf = n_recovered / n_total if n_total else np.nan
+            rows.append(
+                {
+                    "Tw": Tw,
+                    "recovery_time": int(recovery_time),
+                    "n_total": int(n_total),
+                    "n_recovered_by_time": n_recovered,
+                    "n_unrecovered": n_unrecovered,
+                    "fraction_unrecovered": n_unrecovered / n_total if n_total else np.nan,
+                    "cdf": cdf,
+                    "survival": 1.0 - cdf,
+                    "definition": definition,
+                }
+            )
+    return pd.DataFrame(rows).sort_values(["Tw", "recovery_time"])
+
+
 def classify_cell_fate(metadata, persister_recovery_time=None):
     """Label simulated cells as regrowth or persister-like."""
     metadata = metadata.copy()

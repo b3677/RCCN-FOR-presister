@@ -11,6 +11,7 @@ from rccn_persistence.observables import (
     classify_cell_fate,
     compute_global_magnetization,
     compute_recovery_time,
+    compute_recovery_survival_to_zero_by_Tw,
     summarize_fate_by_Tw,
 )
 
@@ -52,3 +53,30 @@ def test_cell_fate_uses_censoring_or_recovery_threshold():
 
     summary = summarize_fate_by_Tw(metadata)
     assert set(summary["fate"]) == {"regrowth", "persister"}
+
+
+def test_recovery_survival_to_zero_uses_first_m_less_than_or_equal_zero(tmp_path):
+    magnetization = pd.DataFrame(
+        {
+            "run_id": [0, 0, 0, 1, 1, 1],
+            "Tw": [0, 0, 0, 0, 0, 0],
+            "time": [5, 6, 7, 5, 6, 7],
+            "magnetization": [0.2, 0.0, -0.1, 0.3, 0.2, -0.2],
+        }
+    )
+    path = tmp_path / "magnetization.csv"
+    magnetization.to_csv(path, index=False)
+    metadata = pd.DataFrame(
+        {
+            "run_id": [0, 1],
+            "Tw": [0, 0],
+            "snapshot_time": [5, 5],
+        }
+    )
+
+    survival = compute_recovery_survival_to_zero_by_Tw(
+        path, metadata, max_time=2, chunksize=2
+    )
+
+    assert survival["survival"].tolist() == [1.0, 0.5, 0.0]
+    assert survival["n_recovered_by_time"].tolist() == [0, 1, 2]

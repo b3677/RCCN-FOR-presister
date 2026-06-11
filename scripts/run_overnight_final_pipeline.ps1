@@ -5,7 +5,8 @@ param(
     [switch]$SkipDependencyCheck,
     [switch]$SkipPytest,
     [switch]$SkipSmoke,
-    [switch]$SmokeOnly
+    [switch]$SmokeOnly,
+    [int]$Workers = 4
 )
 
 $ErrorActionPreference = "Stop"
@@ -108,9 +109,7 @@ if (-not $SkipSmoke) {
         Invoke-LoggedStep "smoke_final_figures" @("scripts\make_final_project_figures.py")
     }
     finally {
-        Move-OutputIfPresent "output\final_simulation" "smoke_outputs\final_simulation"
-        Move-OutputIfPresent "output\final_analysis" "smoke_outputs\final_analysis"
-        Move-OutputIfPresent "output\final_figures" "smoke_outputs\final_figures"
+        Move-OutputIfPresent "output\result611" "smoke_outputs\result611"
     }
 }
 
@@ -122,9 +121,11 @@ if ($SmokeOnly) {
 Invoke-LoggedStep "full_final_simulation" @(
     "scripts\run_final_rccn_simulation.py",
     "--preset",
-    "final"
+    "final",
+    "--workers",
+    "$Workers"
 )
 Invoke-LoggedStep "full_final_analysis" @("scripts\run_final_state_analysis.py")
 Invoke-LoggedStep "full_final_figures" @("scripts\make_final_project_figures.py")
 
-Write-RunLog "DONE final outputs are in output\final_simulation, output\final_analysis, output\final_figures"
+Write-RunLog "DONE final outputs are in output\result611"

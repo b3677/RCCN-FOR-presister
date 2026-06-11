@@ -1,6 +1,13 @@
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import numpy as np
 import pandas as pd
 
+from .io_utils import (
+    is_waiting_time_checkpoint_complete,
+    load_waiting_time_checkpoint,
+    save_waiting_time_checkpoint,
+)
 from .dynamics import run_one_protocol
 from .network import build_rccn_network
 from .observables import compute_cycle_group_features, compute_recovery_time
@@ -102,6 +109,138 @@ def run_for_one_waiting_time(params, Tw, n_runs, rng, run_id_start=0):
         "snapshot_metadata": pd.concat(snapshot_metadata_tables, ignore_index=True),
         "cycle_group_features": pd.concat(cycle_group_tables, ignore_index=True),
     }
+
+
+def make_run_seed(base_seed, Tw, run_id):
+    seed_sequence = np.random.SeedSequence([int(base_seed), int(Tw), int(run_id)])
+    return int(seed_sequence.generate_state(1, dtype=np.uint32)[0])
+
+
+def run_one_cell_from_seed(params, Tw, run_id, seed):
+    rng = np.random.default_rng(seed)
+    return run_one_cell(params, Tw, run_id, rng)
+
+
+def _combine_cell_results(cell_results):
+    return {
+        "metadata": pd.DataFrame([result["metadata"] for result in cell_results]),
+        "magnetization": pd.concat(
+            [result["magnetization"] for result in cell_results],
+            ignore_index=True,
+        ),
+        "spin_release": np.vstack(
+            [result["release_snapshot"] for result in cell_results]
+        ),
+        "spin_early_recovery": np.vstack(
+            [result["early_recovery_snapshot"] for result in cell_results]
+        ),
+        "selected_spin_snapshots": np.vstack(
+            [result["selected_spin_snapshots"] for result in cell_results]
+        ),
+        "snapshot_metadata": pd.concat(
+            [result["snapshot_metadata"] for result in cell_results],
+            ignore_index=True,
+        ),
+        "cycle_group_features": pd.concat(
+            [result["cycle_group_features"] for result in cell_results],
+            ignore_index=True,
+        ),
+    }
+
+
+def run_for_one_waiting_time_parallel(params, Tw, n_runs, run_id_start=0, workers=1):
+    tasks = []
+    for local_run in range(n_runs):
+        run_id = run_id_start + local_run
+        seed = make_run_seed(params["random_seed"], Tw, run_id)
+        tasks.append((params, Tw, run_id, seed))
+
+    if workers <= 1:
+        cell_results = []
+        for local_run, (task_params, task_Tw, run_id, seed) in enumerate(tasks):
+            print(f"[simulate] Tw={Tw}, run={local_run + 1}/{n_runs}")
+            cell_results.append(
+                run_one_cell_from_seed(task_params, task_Tw, run_id, seed)
+            )
+        return _combine_cell_results(cell_results)
+
+    cell_results = []
+    completed = 0
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [
+            executor.submit(run_one_cell_from_seed, task_params, task_Tw, run_id, seed)
+            for task_params, task_Tw, run_id, seed in tasks
+        ]
+        for future in as_completed(futures):
+            cell_results.append(future.result())
+            completed += 1
+            print(f"[simulate] Tw={Tw}, done={completed}/{n_runs}")
+
+    cell_results.sort(key=lambda result: result["metadata"]["run_id"])
+    return _combine_cell_results(cell_results)
+
+
+def merge_waiting_time_results(waiting_time_results):
+    return {
+        "metadata": pd.concat(
+            [result["metadata"] for result in waiting_time_results],
+            ignore_index=True,
+        ),
+        "magnetization": pd.concat(
+            [result["magnetization"] for result in waiting_time_results],
+            ignore_index=True,
+        ),
+        "spin_release": np.vstack(
+            [result["spin_release"] for result in waiting_time_results]
+        ),
+        "spin_early_recovery": np.vstack(
+            [result["spin_early_recovery"] for result in waiting_time_results]
+        ),
+        "selected_spin_snapshots": np.vstack(
+            [result["selected_spin_snapshots"] for result in waiting_time_results]
+        ),
+        "snapshot_metadata": pd.concat(
+            [result["snapshot_metadata"] for result in waiting_time_results],
+            ignore_index=True,
+        ),
+        "cycle_group_features": pd.concat(
+            [result["cycle_group_features"] for result in waiting_time_results],
+            ignore_index=True,
+        ),
+    }
+
+
+def run_batch_with_tw_checkpoints(params, checkpoint_root, workers=1, resume=True):
+    next_run_id = 0
+
+    for Tw in params["waiting_times"]:
+        if resume and is_waiting_time_checkpoint_complete(checkpoint_root, Tw, params):
+            print(f"[resume] found complete Tw={Tw} checkpoint")
+        else:
+            result = run_for_one_waiting_time_parallel(
+                params=params,
+                Tw=Tw,
+                n_runs=params["n_runs"],
+                run_id_start=next_run_id,
+                workers=workers,
+            )
+            save_waiting_time_checkpoint(
+                result,
+                checkpoint_root,
+                Tw,
+                params,
+                worker_count=workers,
+            )
+            print(f"[checkpoint] saved Tw={Tw}")
+            del result
+
+        next_run_id += params["n_runs"]
+
+    waiting_time_results = [
+        load_waiting_time_checkpoint(checkpoint_root, Tw)
+        for Tw in params["waiting_times"]
+    ]
+    return merge_waiting_time_results(waiting_time_results)
 
 
 def run_batch(params):

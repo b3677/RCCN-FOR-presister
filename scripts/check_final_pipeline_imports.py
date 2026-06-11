@@ -3,7 +3,16 @@ import sys
 
 
 def main():
-    required_modules = ["numpy", "pandas", "sklearn", "umap", "openpyxl"]
+    required_modules = [
+        "numpy",
+        "pandas",
+        "scipy",
+        "matplotlib",
+        "sklearn",
+        "umap",
+        "openpyxl",
+        "pytest",
+    ]
     missing = []
     for module_name in required_modules:
         try:
