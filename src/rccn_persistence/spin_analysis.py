@@ -137,7 +137,7 @@ def build_spin_feature_matrix(simulation_data, feature_mode="selected_snapshots"
     else:
         raise ValueError(f"unknown feature_mode: {feature_mode}")
 
-    X_features = np.asarray(X_features, dtype=float)
+    X_features = np.asarray(X_features)
     if X_features.shape[0] != len(feature_metadata):
         raise ValueError("feature matrix row count does not match feature metadata")
     feature_metadata = feature_metadata.reset_index(drop=True)
@@ -145,14 +145,41 @@ def build_spin_feature_matrix(simulation_data, feature_mode="selected_snapshots"
     return X_features, feature_metadata
 
 
-def run_pca(X_features, n_components):
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import StandardScaler
+def run_pca(X_features, n_components, method="full"):
+    from sklearn.decomposition import IncrementalPCA, PCA
 
     max_components = min(n_components, X_features.shape[0], X_features.shape[1])
-    X_scaled = StandardScaler(with_std=False).fit_transform(X_features)
-    pca = PCA(n_components=max_components, svd_solver="auto")
-    scores = pca.fit_transform(X_scaled)
+
+    if method == "incremental":
+        batch_size = max(1024, max_components * 10)
+        pca = IncrementalPCA(n_components=max_components, batch_size=batch_size)
+
+        for start in range(0, X_features.shape[0], batch_size):
+            stop = min(start + batch_size, X_features.shape[0])
+            print(
+                f"[analysis] PCA partial_fit rows {start}:{stop}",
+                flush=True,
+            )
+            pca.partial_fit(np.asarray(X_features[start:stop], dtype=np.float32))
+
+        score_chunks = []
+        for start in range(0, X_features.shape[0], batch_size):
+            stop = min(start + batch_size, X_features.shape[0])
+            print(
+                f"[analysis] PCA transform rows {start}:{stop}",
+                flush=True,
+            )
+            score_chunks.append(
+                pca.transform(np.asarray(X_features[start:stop], dtype=np.float32))
+            )
+        scores = np.vstack(score_chunks)
+    elif method == "full":
+        print("[analysis] converting feature matrix to float32 for full PCA", flush=True)
+        pca = PCA(n_components=max_components, svd_solver="auto")
+        scores = pca.fit_transform(np.asarray(X_features, dtype=np.float32))
+    else:
+        raise ValueError(f"unknown PCA method: {method}")
+
     pca_scores = pd.DataFrame(
         scores, columns=[f"PC{i + 1}" for i in range(scores.shape[1])]
     )
@@ -343,25 +370,32 @@ def compute_cycle_pc1_moving_average_by_Tw(
     return pd.concat(tables, ignore_index=True)
 
 
-def run_final_state_analysis(simulation_data, analysis_params):
+def run_final_state_analysis(simulation_data, analysis_params, recovery_dynamics=None):
+    print("[analysis] building feature matrix", flush=True)
     X_features, feature_metadata = build_spin_feature_matrix(
         simulation_data, analysis_params.get("feature_mode", "selected_snapshots")
     )
     sourcefig2_path = analysis_params["sourcefig2_path"]
+    print("[analysis] loading tail fraction table", flush=True)
     tail_fraction = load_tail_fraction_table(
         sourcefig2_path, analysis_params["waiting_times"]
     )
+    print("[analysis] running PCA", flush=True)
     pca_scores, pca_explained = run_pca(
-        X_features, analysis_params["pca_components"]
+        X_features,
+        analysis_params["pca_components"],
+        method=analysis_params.get("pca_method", "full"),
     )
     pc_columns = [col for col in pca_scores.columns if col.startswith("PC")]
     X_embedding = pca_scores[pc_columns].to_numpy()
+    print("[analysis] running UMAP", flush=True)
     umap_scores = run_umap(
         X_embedding,
         analysis_params["random_seed"],
         n_neighbors=analysis_params.get("umap_n_neighbors", 20),
         min_dist=analysis_params.get("umap_min_dist", 0.2),
     )
+    print("[analysis] running clustering", flush=True)
     cluster_labels = run_clustering(
         X_embedding,
         analysis_params["n_clusters"],
@@ -380,10 +414,13 @@ def run_final_state_analysis(simulation_data, analysis_params):
     recovery_by_cluster = summarize_recovery_time_by_cluster(
         cell_state_table, state_for_cluster
     )
-    recovery_dynamics = compute_recovery_dynamics_by_Tw(
-        simulation_data["magnetization"], simulation_data["metadata"]
-    )
+    if recovery_dynamics is None:
+        print("[analysis] computing recovery dynamics from merged table", flush=True)
+        recovery_dynamics = compute_recovery_dynamics_by_Tw(
+            simulation_data["magnetization"], simulation_data["metadata"]
+        )
     cycle_group_features = simulation_data["cycle_group_features"]
+    print("[analysis] computing cycle PC1 moving average", flush=True)
     cycle_pc1 = compute_cycle_pc1_moving_average(
         cell_state_table,
         cycle_group_features,

@@ -9,8 +9,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from rccn_persistence.config import make_final_output_paths, make_final_project_params
 from rccn_persistence.io_utils import (
+    compute_recovery_dynamics_from_checkpoints,
     ensure_output_dirs,
-    load_final_simulation_outputs,
+    load_final_analysis_inputs,
     save_final_analysis_outputs,
 )
 from rccn_persistence.spin_analysis import run_final_state_analysis
@@ -44,8 +45,18 @@ def main():
         sourcefig2_path = PROJECT_ROOT / sourcefig2_path
     params["sourcefig2_path"] = sourcefig2_path
 
-    simulation_data = load_final_simulation_outputs(paths)
-    analysis_result = run_final_state_analysis(simulation_data, params)
+    print("[analysis] loading metadata and feature array", flush=True)
+    simulation_data = load_final_analysis_inputs(
+        paths, params.get("feature_mode", "selected_snapshots")
+    )
+    print("[analysis] computing recovery dynamics from checkpoints", flush=True)
+    recovery_dynamics = compute_recovery_dynamics_from_checkpoints(
+        paths, params["waiting_times"], simulation_data["metadata"]
+    )
+    analysis_result = run_final_state_analysis(
+        simulation_data, params, recovery_dynamics=recovery_dynamics
+    )
+    print("[analysis] saving outputs", flush=True)
     save_final_analysis_outputs(analysis_result, paths)
     print(f"[done] final analysis outputs: {paths['final_analysis']}")
 

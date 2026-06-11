@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from rccn_persistence.observables import compute_recovery_dynamics_by_Tw
+
 
 def ensure_output_dirs(paths):
     for path in paths.values():
@@ -69,14 +71,17 @@ def save_final_simulation_outputs(batch_result, paths):
     batch_result["magnetization"].to_csv(
         simulation_dir / "magnetization.csv", index=False
     )
-    np.save(simulation_dir / "spin_release.npy", batch_result["spin_release"])
+    np.save(
+        simulation_dir / "spin_release.npy",
+        batch_result["spin_release"].astype(np.int8, copy=False),
+    )
     np.save(
         simulation_dir / "spin_early_recovery.npy",
-        batch_result["spin_early_recovery"],
+        batch_result["spin_early_recovery"].astype(np.int8, copy=False),
     )
     np.save(
         simulation_dir / "selected_spin_snapshots.npy",
-        batch_result["selected_spin_snapshots"],
+        batch_result["selected_spin_snapshots"].astype(np.int8, copy=False),
     )
     batch_result["snapshot_metadata"].to_csv(
         simulation_dir / "snapshot_metadata.csv", index=False
@@ -101,6 +106,44 @@ def load_final_simulation_outputs(paths):
             simulation_dir / "cycle_group_features.csv"
         ),
     }
+
+
+def load_final_analysis_inputs(paths, feature_mode="selected_snapshots"):
+    """Load only the simulation outputs needed by final state analysis."""
+    simulation_dir = paths["final_simulation"]
+    result = {
+        "metadata": pd.read_csv(simulation_dir / "metadata.csv"),
+        "cycle_group_features": pd.read_csv(
+            simulation_dir / "cycle_group_features.csv"
+        ),
+    }
+
+    if feature_mode == "selected_snapshots":
+        result["selected_spin_snapshots"] = np.load(
+            simulation_dir / "selected_spin_snapshots.npy", mmap_mode="r"
+        )
+        result["snapshot_metadata"] = pd.read_csv(
+            simulation_dir / "snapshot_metadata.csv"
+        )
+    elif feature_mode == "release":
+        result["spin_release"] = np.load(
+            simulation_dir / "spin_release.npy", mmap_mode="r"
+        )
+    elif feature_mode == "early":
+        result["spin_early_recovery"] = np.load(
+            simulation_dir / "spin_early_recovery.npy", mmap_mode="r"
+        )
+    elif feature_mode == "release_plus_early":
+        result["spin_release"] = np.load(
+            simulation_dir / "spin_release.npy", mmap_mode="r"
+        )
+        result["spin_early_recovery"] = np.load(
+            simulation_dir / "spin_early_recovery.npy", mmap_mode="r"
+        )
+    else:
+        raise ValueError(f"unknown feature_mode: {feature_mode}")
+
+    return result
 
 
 CHECKPOINT_FILES = {
@@ -161,14 +204,17 @@ def save_waiting_time_checkpoint(result, checkpoint_root, Tw, params, worker_cou
     result["magnetization"].to_csv(
         tw_dir / CHECKPOINT_FILES["magnetization"], index=False
     )
-    np.save(tw_dir / CHECKPOINT_FILES["spin_release"], result["spin_release"])
+    np.save(
+        tw_dir / CHECKPOINT_FILES["spin_release"],
+        result["spin_release"].astype(np.int8, copy=False),
+    )
     np.save(
         tw_dir / CHECKPOINT_FILES["spin_early_recovery"],
-        result["spin_early_recovery"],
+        result["spin_early_recovery"].astype(np.int8, copy=False),
     )
     np.save(
         tw_dir / CHECKPOINT_FILES["selected_spin_snapshots"],
-        result["selected_spin_snapshots"],
+        result["selected_spin_snapshots"].astype(np.int8, copy=False),
     )
     result["snapshot_metadata"].to_csv(
         tw_dir / CHECKPOINT_FILES["snapshot_metadata"], index=False
@@ -202,6 +248,25 @@ def load_waiting_time_checkpoint(checkpoint_root, Tw):
             tw_dir / CHECKPOINT_FILES["cycle_group_features"]
         ),
     }
+
+
+def compute_recovery_dynamics_from_checkpoints(paths, waiting_times, metadata):
+    checkpoint_root = paths["final_simulation"] / "checkpoints"
+    tables = []
+    for Tw in waiting_times:
+        tw_dir = _tw_checkpoint_dir(checkpoint_root, Tw)
+        magnetization_path = tw_dir / CHECKPOINT_FILES["magnetization"]
+        if not magnetization_path.exists():
+            raise FileNotFoundError(f"checkpoint magnetization not found: {magnetization_path}")
+
+        magnetization = pd.read_csv(magnetization_path)
+        tw_metadata = metadata[metadata["Tw"] == Tw].copy()
+        if tw_metadata.empty:
+            raise ValueError(f"metadata has no rows for Tw={Tw}")
+
+        tables.append(compute_recovery_dynamics_by_Tw(magnetization, tw_metadata))
+
+    return pd.concat(tables, ignore_index=True).sort_values(["Tw", "recovery_time"])
 
 
 def is_waiting_time_checkpoint_complete(checkpoint_root, Tw, params):

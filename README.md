@@ -183,7 +183,7 @@ The final RCCN simulation can run one `Tw` block at a time with CPU workers and
 resume from completed checkpoints:
 
 ```powershell
-F:\conda_envs\e_coli_rpy2_py311\python.exe scripts\run_final_rccn_simulation.py --preset final --workers 4
+C:\work\env_rccn_stable\python.exe scripts\run_final_rccn_simulation.py --preset final --workers 4
 ```
 
 Completed checkpoints are stored under:
@@ -243,7 +243,7 @@ The final pipeline currently implements:
 - Recovery-time and mean recovery dynamics summaries.
 - Selected spin snapshots at recovery times
   `0, 250, 500, 1000, 2000, 4000`.
-- PCA, UMAP, and KMeans clustering on selected spin-state snapshots.
+- Full sklearn PCA, UMAP, and KMeans clustering on selected spin-state snapshots.
 - Presister-like state labeling by matching simulated tail fractions to the
   experimental `sourcefig2.xlsx` table.
 - Cycle/loop group feature summaries for short, medium, and long cycles.
@@ -346,7 +346,59 @@ These dependencies are recorded in:
 environment.yml
 ```
 
-### One-command setup and check
+### Recommended stable analysis environment
+
+For the final `result611` analysis and figure generation, the tested stable
+environment is a conda-forge Python 3.11 environment using OpenBLAS and a
+UMAP/scikit-learn version pair that works together on Windows:
+
+```text
+C:\work\env_rccn_stable
+```
+
+Create it with:
+
+```powershell
+conda create -p C:\work\env_rccn_stable -c conda-forge --strict-channel-priority python=3.11 "numpy=1.26.*" "scipy=1.11.*" "scikit-learn=1.4.*" pandas matplotlib umap-learn openpyxl pytest "libblas=*=*openblas" "liblapack=*=*openblas" -y
+conda install -p C:\work\env_rccn_stable -c conda-forge "umap-learn=0.5.6" -y
+```
+
+Then verify:
+
+```powershell
+C:\work\env_rccn_stable\python.exe scripts\check_final_pipeline_imports.py
+C:\work\env_rccn_stable\python.exe -m pytest tests
+```
+
+Before running final analysis with full PCA, set OpenBLAS/OMP threads:
+
+```powershell
+$env:OPENBLAS_NUM_THREADS="4"
+$env:OMP_NUM_THREADS="4"
+$env:NUMEXPR_NUM_THREADS="4"
+```
+
+Then run:
+
+```powershell
+C:\work\env_rccn_stable\python.exe scripts\run_final_state_analysis.py
+C:\work\env_rccn_stable\python.exe scripts\make_final_project_figures.py
+```
+
+The final analysis uses full sklearn PCA by default. `IncrementalPCA` remains
+available only as an explicit fallback through the internal `pca_method`
+parameter.
+
+Important Windows environment note:
+
+- Avoid mixing pip-installed `scipy` with conda-forge `numpy` /
+  `scikit-learn` / BLAS packages.
+- In one failed environment, `python.exe` crashed during PCA with a native
+  `APPCRASH` rather than a Python traceback.
+- `umap-learn 0.5.12` was incompatible with `scikit-learn 1.4.2` in this run;
+  `umap-learn 0.5.6` worked.
+
+### Generic one-command setup and check
 
 After installing Miniconda/Miniforge and cloning/copying this repository to the
 new computer, open PowerShell in the project root and run:
@@ -372,7 +424,7 @@ to check that all required packages can be imported.
 To create the environment at a specific path instead of by name:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup_result611_environment.ps1 -EnvPath F:\conda_envs\e_coli_rccn_py311
+powershell -ExecutionPolicy Bypass -File scripts\setup_result611_environment.ps1 -EnvPath C:\work\env
 ```
 
 To also run the small unit-test suite after package installation:
@@ -385,7 +437,7 @@ The setup script prints the `python.exe` path at the end. Use that path when
 starting the full pipeline on a new computer, for example:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_result611_pipeline.ps1 -PythonExe "F:\conda_envs\e_coli_rccn_py311\python.exe" -Workers 4
+powershell -ExecutionPolicy Bypass -File scripts\run_result611_pipeline.ps1 -PythonExe "C:\work\env\python.exe" -Workers 4
 ```
 
 If you use the default named conda environment, copy the `python.exe` path printed
@@ -415,3 +467,14 @@ The full final pipeline can then be run with:
 powershell -ExecutionPolicy Bypass -File scripts\run_result611_pipeline.ps1 -PythonExe "<path-to-qbio_rccn_py311-python.exe>" -Workers 4
 ```
 
+For the known-good Windows analysis environment from 2026-06-11, prefer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_result611_pipeline.ps1 -PythonExe "C:\work\env_rccn_stable\python.exe" -Workers 12
+```
+
+More detailed run notes, cleanup notes, and environment debugging records are in:
+
+```text
+cowithAI/0611running.md
+```
